@@ -7,10 +7,14 @@ app.use(cors());
 app.use(express.json());
 
 // MongoDB Connection
-mongoose.connect("mongodb+srv://jimenopppppp:Shishir_123@joyverse.g0ptnwm.mongodb.net/joyverse?retryWrites=true&w=majority&appName=joyverse", {
+/*mongoose.connect("mongodb+srv://jimenopppppp:Shishir_123@joyverse.g0ptnwm.mongodb.net/joyverse?retryWrites=true&w=majority&appName=joyverse", {
   useNewUrlParser: true,
   useUnifiedTopology: true,
   serverApi: { version: '1', strict: true, deprecationErrors: true }
+});*/
+mongoose.connect('mongodb://localhost:27017/joyverse', {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
 });
 const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'MongoDB connection error:'));
@@ -33,6 +37,7 @@ const childSchema = new mongoose.Schema({
   password: String,
   hint: String,
   adminId: String,
+  phone: { type: String, default: null },
 });
 
 const feedbackSchema = new mongoose.Schema({
@@ -67,6 +72,7 @@ const childRequestSchema = new mongoose.Schema({
   password: { type: String, required: true },
   phone: { type: String, required: true },
   therapistNumber: { type: String, required: true },
+  adminId:{ type: String, default: null },
   timestamp: { type: Date, default: Date.now },
 });
 
@@ -95,7 +101,7 @@ const AdminRequest = mongoose.model('AdminRequest', adminRequestSchema);
 
 // Admin Routes
 app.get('/api/admins', async (req, res) => {
-  const admins = await Admin.find({}, '-password');
+  const admins = await Admin.find({});
   res.json(admins);
 });
 
@@ -213,7 +219,7 @@ app.get('/api/children', async (req, res) => {
   if (adminId) query.adminId = adminId;
 
   try {
-    const children = await Child.find(query, '-password');
+    const children = await Child.find(query);
     res.json(children);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch children' });
@@ -237,7 +243,8 @@ app.post('/api/children', async (req, res) => {
 
 // Child Request Routes
 app.post('/api/child-requests', async (req, res) => {
-  const { childName, password, phoneNumber, therapistNumber } = req.body;
+  const { childName, password, phoneNumber, therapistNumber ,adminName} = req.body;
+  console.log(req.body);
   if (!childName || !password || !phoneNumber || !therapistNumber) {
     return res.status(400).json({ error: 'All fields are required' });
   }
@@ -247,6 +254,7 @@ app.post('/api/child-requests', async (req, res) => {
     password,
     phone: phoneNumber,
     therapistNumber,
+    adminId:adminName
   });
   await newChildRequest.save();
   res.json({ message: 'Child request submitted successfully', id: newChildRequest._id });
@@ -254,7 +262,9 @@ app.post('/api/child-requests', async (req, res) => {
 
 app.get('/api/child-requests', async (req, res) => {
   try {
-    const childRequests = await ChildRequest.find();
+    const {adminId} = req.query;
+    console.log(adminId);
+    const childRequests = await ChildRequest.find({adminId});
     res.json(childRequests);
   } catch (err) {
     console.error('Error fetching child requests:', err);
@@ -279,7 +289,7 @@ app.post('/api/child-requests/delete', async (req, res) => {
 
 // Admin Request Routes
 app.post('/api/admin-requests', async (req, res) => {
-  const { name, password, phone, age, occupation, location, bio, links } = req.body;
+  const { name, password, phoneNumber, age, occupation, location, bio, links } = req.body;
   if (!name || !password) {
     return res.status(400).json({ error: 'Name and password are required' });
   }
@@ -287,7 +297,7 @@ app.post('/api/admin-requests', async (req, res) => {
   const newAdminRequest = new AdminRequest({
     name,
     password,
-    phone: phone || null,
+    phone: phoneNumber || null,
     age: age || null,
     occupation: occupation || null,
     location: location || null,
@@ -351,8 +361,7 @@ app.post('/save_game_data', async (req, res) => {
       gameName,
       wordsFound: wordsFound || null,
       score: score || null,
-      sequence: sequence || null,
-      playerSequence: playerSequence || null,
+      
       emotion,
       timestamp: new Date(timestamp),
       adminId: adminId || null,
@@ -365,8 +374,6 @@ app.post('/save_game_data', async (req, res) => {
       gameName,
       wordsFound,
       score,
-      sequence,
-      playerSequence,
       emotion,
       timestamp,
       adminId,

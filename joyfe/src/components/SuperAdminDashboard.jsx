@@ -50,6 +50,7 @@ export function SuperAdminDashboard({ onLogout }) {
           })
         );
         setAdminRequests(requestsWithExists);
+        
       } catch (err) {
         console.error('Error fetching admin requests:', err);
         setError('Failed to load admin requests. Please try again later.');
@@ -82,6 +83,7 @@ export function SuperAdminDashboard({ onLogout }) {
       const res = await fetch('http://localhost:3002/api/admins');
       const data = await res.json();
       setAdmins(data);
+      console.log('Fetched Admins:', data); 
     } catch (err) {
       console.error('Error fetching admins:', err);
       setError('Failed to load admins. Please try again later.');
@@ -174,9 +176,9 @@ export function SuperAdminDashboard({ onLogout }) {
       const adminData = {
         username: updatedRequest.name,
         password: updatedRequest.password || 'defaultPassword',
-        phone: null,
-        bio: null,
-        occupation: null,
+        phone: updatedRequest.phone,
+        bio: updatedRequest.bio,
+        occupation: updatedRequest.occupation,
         displayPassword: updatedRequest.password || 'defaultPassword'
       };
       
@@ -295,12 +297,7 @@ export function SuperAdminDashboard({ onLogout }) {
             <FileText size={20} />
             Admin Requests ({adminRequests.length})
           </button>
-          <button
-            onClick={onLogout}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
-          >
-            Logout
-          </button>
+          
         </div>
       </div>
 
@@ -360,7 +357,7 @@ export function SuperAdminDashboard({ onLogout }) {
               Add Admin
             </button>
           </form>
-
+          
           <div>
             <h3 className="text-xl font-comic mb-4">Admins</h3>
             <div className="space-y-4">
@@ -371,10 +368,12 @@ export function SuperAdminDashboard({ onLogout }) {
                     key={index}
                     className="flex items-center justify-between bg-gray-50 p-4 rounded-lg"
                   >
+                    
                     <div>
+                      
                       <p className="text-lg font-semibold">{admin.username}</p>
                       <div className="mt-1 grid grid-cols-2 gap-2 text-sm text-gray-600">
-                        <p><span className="font-medium">Password:</span> {adminPasswords[admin.username] || 'Not available'}</p>
+                        <p><span className="font-medium">Password:</span> {admin.password || 'Not available'}</p>
                         <p><span className="font-medium">Phone:</span> {admin.phone || 'Not available'}</p>
                       </div>
                     </div>
@@ -473,6 +472,9 @@ export function SuperAdminDashboard({ onLogout }) {
                     id: request._id,
                     name: request.name,
                     password: request.password,
+                    occupation: request.occupation,
+                    bio:request.bio,
+                    phone:request.phone,
                     usernameExists: request.usernameExists,
                   }} 
                   onCreate={handleCreateAdminRequest} 

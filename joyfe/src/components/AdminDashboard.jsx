@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Users, MessageSquare, UserPlus, BarChart as ChartBar, ArrowLeft, FileText, UserMinus } from 'lucide-react';
+import { Users, MessageSquare, UserPlus, BarChart, ArrowLeft, FileText, UserMinus } from 'lucide-react';
 import EmotionTrackingReport from './EmotionTrackingReport';
 import Request from './Request';
 
@@ -20,7 +20,6 @@ export function AdminDashboard({ adminUsername, onLogout }) {
   // Helper function to validate and log JSON data
   const validateAndStringify = (data, context) => {
     try {
-      // Check for undefined or non-serializable values
       const cleanedData = JSON.parse(JSON.stringify(data));
       console.log(`Sending ${context}:`, cleanedData);
       return JSON.stringify(cleanedData);
@@ -34,7 +33,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
   useEffect(() => {
     const fetchChildRequests = async () => {
       try {
-        const response = await fetch('http://localhost:3002/api/child-requests');
+        const response = await fetch(`http://localhost:3002/api/child-requests?adminId=${adminUsername}`);
         const data = await response.json();
         if (!response.ok) {
           throw new Error(data.error || 'Failed to fetch child requests');
@@ -56,7 +55,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
     };
 
     fetchChildRequests();
-  }, []);
+  }, [adminUsername]);
 
   useEffect(() => {
     const fetchChildren = async () => {
@@ -144,6 +143,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
     const sessions = [];
     let currentSessionEntries = [sortedEntries[0]];
     
+    // Group entries into sessions based on 120-second time gap
     for (let i = 1; i < sortedEntries.length; i++) {
       const currentEntry = sortedEntries[i];
       const previousEntry = sortedEntries[i - 1];
@@ -169,12 +169,21 @@ export function AdminDashboard({ adminUsername, onLogout }) {
       const levels = [];
       let currentLevelEntries = [sessionEntries[0]];
       
+      // Initialize with score or wordsFound based on game
+      const isBoggle = sessionEntries[0].gameName === 'Boggle game';
+      let lastNonZeroScore = isBoggle 
+        ? Number(sessionEntries[0].wordsFound) || 0 
+        : Number(sessionEntries[0].score) || 0;
+      let totalScore = lastNonZeroScore;
+      
+      // Group entries into levels based on reset condition for Boggle
       for (let i = 1; i < sessionEntries.length; i++) {
         const currentEntry = sessionEntries[i];
         const previousEntry = sessionEntries[i - 1];
         
         let isLevelReset = false;
-        if ('wordsFound' in currentEntry && 'wordsFound' in previousEntry && currentEntry.wordsFound !== null && previousEntry.wordsFound !== null) {
+        if (isBoggle && 'wordsFound' in currentEntry && 'wordsFound' in previousEntry && 
+            currentEntry.wordsFound !== null && previousEntry.wordsFound !== null) {
           isLevelReset = previousEntry.wordsFound === 4 && currentEntry.wordsFound === 0;
         }
         
@@ -183,8 +192,18 @@ export function AdminDashboard({ adminUsername, onLogout }) {
             levels.push(currentLevelEntries);
           }
           currentLevelEntries = [currentEntry];
+          totalScore += Number(currentEntry.wordsFound) || 0;
         } else {
           currentLevelEntries.push(currentEntry);
+        }
+        
+        // Update last non-zero score based on game
+        const currentValue = isBoggle ? Number(currentEntry.wordsFound) : Number(currentEntry.score);
+        if (currentValue !== 0) {
+          lastNonZeroScore = currentValue;
+          if (!isLevelReset) {
+            totalScore = lastNonZeroScore; // Update totalScore to latest non-zero value
+          }
         }
       }
       
@@ -192,36 +211,51 @@ export function AdminDashboard({ adminUsername, onLogout }) {
         levels.push(currentLevelEntries);
       }
       
-      const processedLevels = levels.map((levelEntries, levelIndex) => {
-        let totalScore = 0;
-        let wordsCompleted = 0;
-        
-        const lastEntry = levelEntries[levelEntries.length - 1];
-        totalScore = Number(lastEntry.score) || 0;
-        
-        if (totalScore === 0 && levelEntries.some(entry => 'wordsFound' in entry && entry.wordsFound !== null)) {
-          wordsCompleted = levelEntries.filter(entry => entry.wordsFound === 4).length;
-          totalScore = wordsCompleted * 10;
+      // Assign score to each entry
+      let entryLastNonZeroScore = isBoggle 
+        ? Number(sessionEntries[0].wordsFound) || 0 
+        : Number(sessionEntries[0].score) || 0;
+      const entriesWithScore = sessionEntries.map((entry, index) => {
+        const entryValue = isBoggle ? Number(entry.wordsFound) : Number(entry.score);
+        if (entryValue === 0 && index > 0) {
+          return { ...entry, score: entryLastNonZeroScore };
         }
+        if (entryValue !== 0) {
+          entryLastNonZeroScore = entryValue;
+        }
+        return { ...entry, score: entryLastNonZeroScore };
+      });
+      
+      const processedLevels = levels.map((levelEntries, levelIndex) => {
+        let levelLastNonZeroScore = isBoggle 
+          ? Number(levelEntries[0].wordsFound) || 0 
+          : Number(levelEntries[0].score) || 0;
+        let levelScore = levelLastNonZeroScore;
         
-        const completed = totalScore > 0 || wordsCompleted > 0;
+        // Assign score for each level entry
+        const levelEntriesWithScore = levelEntries.map((entry, index) => {
+          const entryValue = isBoggle ? Number(entry.wordsFound) : Number(entry.score);
+          if (entryValue === 0 && index > 0) {
+            return { ...entry, score: levelLastNonZeroScore };
+          }
+          if (entryValue !== 0) {
+            levelLastNonZeroScore = entryValue;
+            levelScore = levelLastNonZeroScore;
+          }
+          return { ...entry, score: levelLastNonZeroScore };
+        });
+        
+        const completed = levelScore > 0;
         
         return {
           id: `level-${levelIndex + 1}`,
           name: `Level ${levelIndex + 1}`,
-          entries: levelEntries,
-          wordsCompleted: wordsCompleted,
-          totalScore: totalScore,
+          entries: levelEntriesWithScore,
+          wordsFound: isBoggle ? levelLastNonZeroScore : null,
+          totalScore: levelScore,
           completed: completed
         };
       });
-      
-      let totalWordsCompleted = processedLevels.reduce((sum, level) => sum + level.wordsCompleted, 0);
-      const lastEntry = sessionEntries[sessionEntries.length - 1];
-      let totalScore = Number(lastEntry.score) || 0;
-      if (totalScore === 0 && totalWordsCompleted > 0) {
-        totalScore = totalWordsCompleted * 10;
-      }
       
       const dominantEmotion = calculateDominantEmotion(sessionEntries);
       const startTime = new Date(sessionEntries[0].timestamp);
@@ -230,9 +264,8 @@ export function AdminDashboard({ adminUsername, onLogout }) {
       return {
         id: `session-${sessionIndex + 1}`,
         name: `Session #${sessionIndex + 1}`,
-        entries: sessionEntries,
+        entries: entriesWithScore,
         levels: processedLevels,
-        totalWordsCompleted: totalWordsCompleted,
         totalScore: totalScore,
         dominantEmotion: dominantEmotion,
         startTime: startTime,
@@ -264,17 +297,17 @@ export function AdminDashboard({ adminUsername, onLogout }) {
       }
     });
     
-    let dominantEmotion = 'neutral';
+    let maxEmotion = 'neutral';
     let maxCount = 0;
     
     Object.entries(emotionCounts).forEach(([emotion, count]) => {
       if (count > maxCount) {
         maxCount = count;
-        dominantEmotion = emotion;
+        maxEmotion = emotion;
       }
     });
     
-    return dominantEmotion.charAt(0).toUpperCase() + dominantEmotion.slice(1);
+    return maxEmotion.charAt(0).toUpperCase() + maxEmotion.slice(1);
   };
 
   const calculateSessionDuration = (startTime, endTime) => {
@@ -349,7 +382,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
         return false;
       }
     } else {
-      setError('Please fill in all required fields (username, password, phone).');
+      console.error('Please fill in all required fields (username, password, phone).');
       return false;
     }
   };
@@ -381,6 +414,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
         const fetchFeedback = async () => {
           const res = await fetch('http://localhost:3002/api/feedback');
           const data = await res.json();
+          
           setFeedbacks(data);
         };
         fetchFeedback();
@@ -449,7 +483,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
     const levelInfo = session.levels.map(level => ({
       name: level.name,
       completed: level.completed,
-      wordsCompleted: level.wordsCompleted,
+      wordsFound: level.wordsFound,
       totalScore: level.totalScore
     }));
     
@@ -461,29 +495,31 @@ export function AdminDashboard({ adminUsername, onLogout }) {
       dominantEmotion: session.dominantEmotion,
       score: score,
       engagementScore: `${engagementScore}/10`,
-      levels: levelInfo,
       emotionCounts: emotionCounts,
       timestamps: timestamps
     };
   };
 
-  const handleCreateRequest = async (requestId, onError, editedUsername) => {
+  const handleCreateChildRequest = async (requestId, onError, editedUsername) => {
     const request = childRequests.find(req => req._id === requestId);
     if (request) {
-      const updatedRequest = { ...request, name: editedUsername || request.name };
-      const success = await handleAddChild(updatedRequest);
+      const modifiedRequest = { ...request, name: editedUsername || request.name };
+      const success = await handleAddChild(modifiedRequest);
+      
       if (success) {
         try {
-          const body = validateAndStringify({ id: requestId }, 'handleCreateRequest');
+          const body = validateAndStringify({ id: requestId }, 'handleCreateChildRequest');
           await fetch('http://localhost:3002/api/child-requests/delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body
           });
+          
           setChildRequests(prevRequests => prevRequests.filter(req => req._id !== requestId));
+          
         } catch (err) {
           console.error('Error deleting child request:', err);
-          setError(err.message || 'Failed to delete child request. Please try again.');
+          setError('Failed to delete child request. Please try again.');
         }
       } else {
         onError();
@@ -502,7 +538,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
       setChildRequests(prevRequests => prevRequests.filter(req => req._id !== requestId));
     } catch (err) {
       console.error('Error declining child request:', err);
-      setError(err.message || 'Failed to decline child request. Please try again.');
+      setError('Failed to decline child request. Please try again.');
     }
   };
 
@@ -514,7 +550,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
   };
 
   const handleRemoveChild = async (username) => {
-    if (window.confirm(`Are you sure you want to remove the account for ${username}?`)) {
+    if (window.confirm(`Are you sure you want to remove the child account for ${username}?`)) {
       try {
         const body = validateAndStringify({ username, adminId: adminUsername }, 'handleRemoveChild');
         const response = await fetch('http://localhost:3002/api/children/delete', {
@@ -540,7 +576,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto p-6 bg-white rounded-xl shadow-lg">
+    <div className="container w-full max-w-4xl mx-auto p-6 bg-white rounded-xl shadow-lg">
       <div className="flex items-center justify-between mb-8">
         <h2 className="text-3xl font-comic text-blue-600">Admin Dashboard</h2>
         <div className="flex gap-4 flex-wrap">
@@ -562,7 +598,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
               activeTab === 'reports' ? 'bg-blue-500 text-white' : 'bg-gray-100'
             }`}
           >
-            <ChartBar size={20} />
+            <BarChart size={20} />
             Reports
           </button>
           <button
@@ -574,6 +610,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
             <MessageSquare size={20} />
             Group Chat
           </button>
+          
           <button
             onClick={() => setActiveTab('requests')}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
@@ -583,21 +620,16 @@ export function AdminDashboard({ adminUsername, onLogout }) {
             <FileText size={20} />
             Student Request ({childRequests.length})
           </button>
-          <button
-            onClick={onLogout}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600"
-          >
-            Logout
-          </button>
+          
         </div>
       </div>
-
+      
       {error && <p className="text-red-500 text-center mb-4">{error}</p>}
 
       {activeTab === 'children' && (
         <div className="space-y-8">
           <form onSubmit={handleCreateChildSubmit} className="bg-gray-50 p-6 rounded-lg">
-            <h3 className="text-xl font-comic mb-4 flex items-center gap-2">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <UserPlus size={24} className="text-green-500" />
               Create Child Account
             </h3>
@@ -636,7 +668,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
           </form>
 
           <div>
-            <h3 className="text-xl font-comic mb-4">Child Accounts</h3>
+            <h3 className="text-xl font-semibold mb-4">Child Accounts</h3>
             <div className="space-y-4">
               {children.map((child) => (
                 <div
@@ -645,9 +677,9 @@ export function AdminDashboard({ adminUsername, onLogout }) {
                 >
                   <div>
                     <p className="text-lg font-semibold">{child.username}</p>
-                    <div className="mt-1 grid grid-cols-2 gap-2 text-sm text-gray-600">
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-gray-600">
                       <p><span className="font-medium">Password:</span> {child.displayPassword || child.password || 'Not available'}</p>
-                      <p><span className="font-medium">Phone No:</span> {child.displayPhone || extractPhoneFromHint(child.hint) || 'Not available'}</p>
+                      <p><span className="font-medium">Phone:</span> {extractPhoneFromHint(child.hint) || child.displayPhone || 'Not available'}</p>
                     </div>
                   </div>
                   <button
@@ -682,7 +714,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
             </div>
           ) : (
             <div>
-              <h3 className="text-xl font-comic mb-4">Game Reports</h3>
+              <h3 className="text-xl font-semibold mb-4">Game Records</h3>
               <div className="space-y-4">
                 {children.map((child) => (
                   <div key={child.username} className="bg-gray-50 p-4 rounded-lg">
@@ -692,14 +724,14 @@ export function AdminDashboard({ adminUsername, onLogout }) {
                         {sessionData[child.username].map((session, index) => (
                           <div key={index} className="flex justify-between items-center py-2">
                             <div>
-                              <span className="mr-4">{session.name}</span>
-                              <span className="mr-4">Score: {session.totalScore}</span>
+                              <span className="ms-4 mr-4">{session.name}</span>
+                              <span className="ms-4 mr-4">Score: {session.totalScore}</span>
                               <span>Emotion: {session.dominantEmotion}</span>
                             </div>
                             <div>
                               <button
                                 onClick={() => viewDetailedReport(child.username, session)}
-                                className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-md text-sm hover:bg-indigo-200 transition"
+                                className="bg-blue-500 text-white px-3 py-1 rounded-md text-sm hover:bg-blue-600 transition"
                               >
                                 View Detailed Report
                               </button>
@@ -708,7 +740,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-gray-500">No game data recorded yet</p>
+                      <p className="text-gray-500 text-center">No game data recorded yet</p>
                     )}
                   </div>
                 ))}
@@ -723,7 +755,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
 
       {activeTab === 'feedback' && (
         <div className="space-y-6">
-          <h3 className="text-2xl font-semibold text-gray-800">Group Chat</h3>
+          <h3 className="text-2xl font-semibold">Group Chat</h3>
           <div className="bg-gray-100 p-6 rounded-lg h-96 overflow-y-auto space-y-4">
             {feedbacks.length === 0 ? (
               <p className="text-gray-500 text-center py-4">No messages in the group chat.</p>
@@ -789,7 +821,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
 
       {activeTab === 'requests' && (
         <div className="space-y-8">
-          <h3 className="text-xl font-comic mb-4">Student Requests</h3>
+          <h3 className="text-xl font-semibold mb-4">Student Requests</h3>
           {childRequests.length > 0 ? (
             <div className="space-y-4">
               {childRequests.map((request) => (
@@ -802,7 +834,7 @@ export function AdminDashboard({ adminUsername, onLogout }) {
                     phone: request.phone,
                     usernameExists: request.usernameExists,
                   }} 
-                  onCreate={handleCreateRequest} 
+                  onCreate={handleCreateChildRequest} 
                   onDecline={handleDeclineRequest} 
                 />
               ))}

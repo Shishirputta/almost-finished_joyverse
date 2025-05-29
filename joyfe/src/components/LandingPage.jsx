@@ -16,10 +16,14 @@ const LandingPage = ({ onLoginClick }) => {
     password: '',
     phoneNumber: '',
     therapistNumber: '',
+    adminName: '', // Added adminName field
   });
   const [adminForm, setAdminForm] = useState({
     name: '',
     password: '',
+    phoneNumber: '',
+    occupation: '',
+    bio: '',
   });
   const [formError, setFormError] = useState(null);
   const [formSuccess, setFormSuccess] = useState(null);
@@ -31,41 +35,18 @@ const LandingPage = ({ onLoginClick }) => {
     return words.map(word => word.charAt(0).toUpperCase()).join('');
   };
 
-  // Function to parse admin data (previously used for therapists)
+  // Function to parse admin data
   const parseAdminData = (admin) => {
-    const bioParts = admin.bio ? admin.bio.split(' | ') : [];
-    let experience = '';
-    let age = 0;
-    let location = '';
-    let links = [];
-    let bio = admin.bio || '';
-
-    bioParts.forEach(part => {
-      if (part.startsWith('Experience: ')) {
-        experience = part.replace('Experience: ', '');
-        bio = bio.replace(`Experience: ${experience} | `, '');
-      } else if (part.startsWith('Age: ')) {
-        age = parseInt(part.replace('Age: ', ''), 10);
-        bio = bio.replace(`Age: ${age} | `, '');
-      } else if (part.startsWith('Location: ')) {
-        location = part.replace('Location: ', '');
-        bio = bio.replace(`Location: ${location} | `, '');
-      } else if (part.startsWith('Links: ')) {
-        links = part.replace('Links: ', '').split(',');
-        bio = bio.replace(`Links: ${links.join(',')} | `, '');
-      }
-    });
-
     return {
-      name: admin.username,
+      name: admin.username || 'Not specified',
       initial: computeInitials(admin.username),
-      experience: experience || 'Not specified',
-      age,
-      occupation: admin.occupation,
-      location: location || 'Not specified',
-      phone: admin.phone,
-      bio: bio || 'No bio provided',
-      links: links.length > 0 ? links : ['No links provided'],
+      experience: 'Not specified', // Not present in provided data
+      age: 0, // Not present in provided data
+      occupation: admin.occupation || 'Not specified',
+      location: 'Not specified', // Not present in provided data
+      phone: admin.phone || 'Not specified',
+      bio: admin.bio || 'No bio provided',
+      links: ['No links provided'], // Not present in provided data
     };
   };
 
@@ -108,8 +89,8 @@ const LandingPage = ({ onLoginClick }) => {
     setFormError(null);
     setFormSuccess(null);
     // Reset forms
-    setConsultForm({ childName: '', password: '', phoneNumber: '', therapistNumber: '' });
-    setAdminForm({ name: '', password: '' });
+    setConsultForm({ childName: '', password: '', phoneNumber: '', therapistNumber: '', adminName: '' });
+    setAdminForm({ name: '', password: '', phoneNumber: '', occupation: '', bio: '' });
   };
 
   // Handle click outside modal
@@ -126,10 +107,14 @@ const LandingPage = ({ onLoginClick }) => {
   };
 
   // Show consult modal
-  const handleConsultClick = (phone, e) => {
+  const handleConsultClick = (phone, adminName, e) => {
     e.stopPropagation();
     setSelectedAdminPhone(phone);
-    setConsultForm(prev => ({ ...prev, therapistNumber: phone }));
+    setConsultForm(prev => ({
+      ...prev,
+      therapistNumber: phone,
+      adminName: adminName, // Set adminName in consultForm
+    }));
     openModal('consultModal');
   };
 
@@ -197,7 +182,7 @@ const LandingPage = ({ onLoginClick }) => {
         throw new Error(data.error || 'Failed to submit child request');
       }
       setFormSuccess('Child request submitted successfully! An admin will review your request.');
-      setConsultForm({ childName: '', password: '', phoneNumber: '', therapistNumber: '' });
+      setConsultForm({ childName: '', password: '', phoneNumber: '', therapistNumber: '', adminName: '' });
     } catch (err) {
       setFormError(err.message);
     }
@@ -226,7 +211,7 @@ const LandingPage = ({ onLoginClick }) => {
         throw new Error(data.error || 'Failed to submit admin request');
       }
       setFormSuccess('Admin request submitted successfully! A super admin will review your request.');
-      setAdminForm({ name: '', password: '' });
+      setAdminForm({ name: '', password: '', phoneNumber: '', occupation: '', bio: '' });
     } catch (err) {
       setFormError(err.message);
     }
@@ -325,6 +310,16 @@ const LandingPage = ({ onLoginClick }) => {
               aria-label="Admin Number"
               readOnly
             />
+            <input
+              type="text"
+              name="adminName"
+              placeholder="Admin Name"
+              value={consultForm.adminName}
+              onChange={handleConsultInputChange}
+              required
+              aria-label="Admin Name"
+              readOnly
+            />
             <button type="submit">Submit</button>
             <button type="button" className="close-btn" onClick={closeModal}>
               Close
@@ -362,6 +357,31 @@ const LandingPage = ({ onLoginClick }) => {
               required
               aria-label="Password"
             />
+            <input
+              type="tel"
+              name="phoneNumber"
+              placeholder="Phone Number"
+              value={adminForm.phoneNumber}
+              onChange={handleAdminInputChange}
+              required
+              aria-label="Phone Number"
+            />
+            <input
+              type="text"
+              name="occupation"
+              placeholder="Occupation"
+              value={adminForm.occupation}
+              onChange={handleAdminInputChange}
+              aria-label="Occupation"
+            />
+            <textarea
+              name="bio"
+              placeholder="Bio"
+              value={adminForm.bio}
+              onChange={handleAdminInputChange}
+              aria-label="Bio"
+              rows="4"
+            ></textarea>
             <button type="submit">Submit</button>
             <button type="button" className="close-btn" onClick={closeModal}>
               Close
@@ -377,7 +397,7 @@ const LandingPage = ({ onLoginClick }) => {
             Joyverse uses fun games and emotion analysis to support dyslexic
             children, connecting them with expert admins.
           </p>
-          <a href="#admins" className="btn" onClick={() => handleShowProfile(0)}>
+          <a href="#admins" className="btn">
             Get Started
           </a>
         </div>
@@ -465,11 +485,12 @@ const LandingPage = ({ onLoginClick }) => {
                   >
                     <div className="avatar">{admin.initial}</div>
                     <h4>{admin.name}</h4>
-                    <p>{admin.experience}</p>
+                    <p>Occupation: {admin.occupation}</p>
                     <p>Phone: {admin.phone}</p>
+                    <p>Bio: {admin.bio}</p>
                     <button
                       className="consult-btn"
-                      onClick={(e) => handleConsultClick(admin.phone, e)}
+                      onClick={(e) => handleConsultClick(admin.phone, admin.name, e)}
                       aria-label={`Request child account with ${admin.name}`}
                     >
                       Request Child Account
@@ -500,10 +521,10 @@ const LandingPage = ({ onLoginClick }) => {
                       <div className="details">
                         <h5>{selectedAdmin.name}</h5>
                         <ul>
-                          <li>Age: {selectedAdmin.age || 'Not specified'}</li>
                           <li>Occupation: {selectedAdmin.occupation}</li>
-                          <li>Location: {selectedAdmin.location}</li>
                           <li>Phone: {selectedAdmin.phone}</li>
+                          <li>Age: {selectedAdmin.age || 'Not specified'}</li>
+                          <li>Location: {selectedAdmin.location}</li>
                         </ul>
                       </div>
                     </div>
@@ -514,7 +535,7 @@ const LandingPage = ({ onLoginClick }) => {
                     <div className="consult-btn-container">
                       <button
                         className="consult-btn"
-                        onClick={(e) => handleConsultClick(selectedAdmin.phone, e)}
+                        onClick={(e) => handleConsultClick(selectedAdmin.phone, selectedAdmin.name, e)}
                         aria-label={`Request child account with ${selectedAdmin.name}`}
                       >
                         Request Child Account
