@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useEmotionDetection from '../components/EmotionDetection/useEmotionDetection';
 import '../gamestyle/MemorySequence.css';
 const colors = [
@@ -8,7 +9,6 @@ const colors = [
   { name: 'Yellow', value: '#FFFACD' },
 ];
 
-// CHANGE: Replaced emotionColors with emotionVideos
 const emotionVideos = {
   happy: '/assets/background-videos/happy-bg.mp4',
   sad: '/assets/background-videos/sad-bg.mp4',
@@ -20,6 +20,7 @@ const emotionVideos = {
 };
 
 function MemorySequence({ username }) {
+  const navigate = useNavigate();
   const [gameState, setGameState] = useState({
     sequence: [],
     playerSequence: [],
@@ -29,6 +30,8 @@ function MemorySequence({ username }) {
     attemptsLeft: 3,
     showSequence: false,
   });
+
+  const [totalAttempts, setTotalAttempts] = useState(0);
 
   const videoRef = useRef(null);
   const faceCanvasRef = useRef(null);
@@ -43,14 +46,11 @@ function MemorySequence({ username }) {
 
   const [gameStarted, setGameStarted] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
-  const [showPlayAgain, setShowPlayAgain] = useState(false);
   const [cameraError, setCameraError] = useState(null);
-  // CHANGE: Replaced backgroundClass with backgroundVideo
   const [backgroundVideo, setBackgroundVideo] = useState(emotionVideos.neutral);
-  const [videoError, setVideoError] = useState(null); // NEW: Track video errors
+  const [videoError, setVideoError] = useState(null);
   const [particles, setParticles] = useState([]);
 
-  // CHANGE: Updated to set backgroundVideo with debugging
   const handleEmotionsCollected = useCallback((emotions) => {
     console.log('MemorySequence - Emotions collected:', emotions);
     if (emotions.length === 0) {
@@ -78,7 +78,6 @@ function MemorySequence({ username }) {
     setCameraError
   );
 
-  // CHANGE: Enhanced video playback with error handling
   useEffect(() => {
     if (gameStarted && backgroundVideoRef.current) {
       console.log('Attempting to play video:', backgroundVideo);
@@ -172,7 +171,6 @@ function MemorySequence({ username }) {
 
     const updateConfetti = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      // CHANGE: Fixed syntax error by removing extra parenthesis
       const newParticles = particles.filter(p => p.y < canvas.height);
       for (const p of newParticles) {
         ctx.beginPath();
@@ -195,7 +193,7 @@ function MemorySequence({ username }) {
   const startGame = () => {
     setGameStarted(true);
     setShowDemo(false);
-    setShowPlayAgain(false);
+    setTotalAttempts(0);
     generateSequence();
   };
 
@@ -237,58 +235,80 @@ function MemorySequence({ username }) {
     setGameState(prev => ({ ...prev, playerSequence: newPlayerSequence }));
 
     if (color.value !== gameState.sequence[newPlayerSequence.length - 1]?.value) {
-      const newAttempts = gameState.attemptsLeft - 1;
-      setGameState(prev => ({
-        ...prev,
-        attemptsLeft: newAttempts,
-        playerSequence: [],
-        message: newAttempts > 0
-          ? `Wrong! ${newAttempts} attempt(s) left.`
-          : `Game Over! Score: ${prev.score}. Press Restart.`,
-        isPlaying: newAttempts > 0,
-      }));
-      if (newAttempts === 0) {
-        setTimeout(() => {
-          setGameStarted(false);
-          setShowPlayAgain(true);
-        }, 2000);
+      const newAttemptsLeft = gameState.attemptsLeft - 1;
+
+      if (newAttemptsLeft > 0) {
+        setGameState(prev => ({
+          ...prev,
+          attemptsLeft: newAttemptsLeft,
+          playerSequence: [],
+          message: `Wrong! ${newAttemptsLeft} attempt(s) left.`,
+          isPlaying: true,
+        }));
+      } else {
+        // Increment totalAttempts only when the sequence ends (out of lives)
+        setTotalAttempts(prev => prev + 1);
+
+        if (totalAttempts + 1 >= 5) {
+          setGameState(prev => ({
+            ...prev,
+            attemptsLeft: newAttemptsLeft,
+            playerSequence: [],
+            message: `Game Over! Final Score: ${prev.score}. Returning to Game Selection...`,
+            isPlaying: false,
+          }));
+          setTimeout(() => {
+            setGameStarted(false);
+            navigate('/');
+          }, 2000);
+        } else {
+          setGameState(prev => ({
+            ...prev,
+            attemptsLeft: newAttemptsLeft,
+            playerSequence: [],
+            message: `You failed! Score: ${prev.score}. Returning to Game Selection...`,
+            isPlaying: false,
+          }));
+          setTimeout(() => {
+            setGameStarted(false);
+            navigate('/');
+          }, 2000);
+        }
       }
     } else if (newPlayerSequence.length === gameState.sequence.length) {
       const newScore = gameState.score + 1;
-      setGameState(prev => ({
-        ...prev,
-        score: newScore,
-        message: 'Correct! Next round...',
-        attemptsLeft: 3,
-      }));
-      correctSound.current.currentTime = 0;
-      correctSound.current.play();
-      launchConfetti();
-      setTimeout(generateSequence, 1000);
+      // Increment totalAttempts only when the sequence is completed correctly
+      setTotalAttempts(prev => prev + 1);
+
+      if (totalAttempts + 1 >= 5) {
+        setGameState(prev => ({
+          ...prev,
+          score: newScore,
+          message: `Game Over! Final Score: ${newScore}. Returning to Game Selection...`,
+          attemptsLeft: 3,
+          isPlaying: false,
+        }));
+        correctSound.current.currentTime = 0;
+        correctSound.current.play();
+        launchConfetti();
+        setTimeout(() => {
+          setGameStarted(false);
+          navigate('/');
+        }, 2000);
+      } else {
+        setGameState(prev => ({
+          ...prev,
+          score: newScore,
+          message: 'Correct! Next round...',
+          attemptsLeft: 3,
+        }));
+        correctSound.current.currentTime = 0;
+        correctSound.current.play();
+        launchConfetti();
+        setTimeout(generateSequence, 1000);
+      }
     }
   };
-
-  const restartGame = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    setGameState({
-      sequence: [],
-      playerSequence: [],
-      score: 0,
-      isPlaying: false,
-      message: 'Press Start to Play!',
-      attemptsLeft: 3,
-      showSequence: false,
-    });
-    // CHANGE: Reset to neutral video
-    setBackgroundVideo(emotionVideos.neutral);
-    setGameStarted(false);
-    setParticles([]);
-    setShowPlayAgain(false);
-    setVideoError(null);
-  };
-
   useEffect(() => {
     return () => {
       if (timeoutRef.current) {
@@ -299,7 +319,6 @@ function MemorySequence({ username }) {
 
   return (
     <div className="memory-sequence-container">
-      {/* NEW: Render video only during gameStarted */}
       {gameStarted && (
         <>
           <video
@@ -341,13 +360,7 @@ function MemorySequence({ username }) {
         )}
         <video
           ref={videoRef}
-          style={{
-            transform: 'scaleX(-1)',
-            width: '320px',
-            height: 'auto',
-            backgroundColor: '#000',
-            display: cameraError ? 'none' : gameStarted ? 'block' : 'none',
-          }}
+          style={{ display: 'none' }}
           autoPlay
           playsInline
           muted
@@ -367,29 +380,18 @@ function MemorySequence({ username }) {
                 autoPlay
                 onEnded={() => {
                   setShowDemo(false);
-                  setShowPlayAgain(true);
                 }}
               >
                 <source src="/assets/memory-sequence-demo.mp4" type="video/mp4" />
                 Your browser does not support the video tag.
               </video>
             ) : (
-              <>
-                <button
-                  className="play-demo"
-                  onClick={() => setShowDemo(true)}
-                  style={{ display: showPlayAgain ? 'none' : 'inline-block' }}
-                >
-                  Watch Demo
-                </button>
-                <button
-                  className="play-again"
-                  onClick={() => setShowDemo(true)}
-                  style={{ display: showPlayAgain ? 'inline-block' : 'none' }}
-                >
-                  Play Again
-                </button>
-              </>
+              <button
+                className="play-demo"
+                onClick={() => setShowDemo(true)}
+              >
+                Watch Demo
+              </button>
             )}
           </div>
           <button onClick={startGame} className="start-button">
@@ -403,7 +405,11 @@ function MemorySequence({ username }) {
             <p className="message">{gameState.message}</p>
             <div className="stats">
               <span>Score: {gameState.score}</span>
-              <span>Attempts: {gameState.attemptsLeft}</span>
+              <span>
+                Lives: {Array.from({ length: gameState.attemptsLeft }, (_, i) => (
+                  <span key={i}>❤️</span>
+                ))}
+              </span>
             </div>
           </div>
 
@@ -430,12 +436,7 @@ function MemorySequence({ username }) {
             ))}
           </div>
 
-          <div className="controls">
-            <button onClick={startGame} disabled={gameState.isPlaying}>
-              Start Game
-            </button>
-            <button onClick={restartGame}>Restart</button>
-          </div>
+          
         </div>
       )}
 
