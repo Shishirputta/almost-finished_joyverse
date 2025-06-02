@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react"; // Added React import
 import { useNavigate } from "react-router-dom";
 import Confetti from "react-confetti";
 import useEmotionDetection from '../components/EmotionDetection/useEmotionDetection';
 import "../gamestyle/MemoryGame.css";
 
+// Define colors for the grid
 const colors = [
   "#FF5733",
   "#33FF57",
@@ -15,6 +16,7 @@ const colors = [
   "#33A6FF",
 ];
 
+// Define emotion videos
 const emotionVideos = {
   happy: '/assets/background-videos/happy-bg.mp4',
   sad: '/assets/background-videos/sad-bg.mp4',
@@ -24,6 +26,29 @@ const emotionVideos = {
   fear: '/assets/background-videos/fear-bg.mp4',
   disgust: '/assets/background-videos/disgust-bg.mp4',
 };
+
+// Utility function to debounce a callback
+const debounce = (func, wait) => {
+  let timeout;
+  return (...args) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+};
+
+// Memoized Box component to prevent unnecessary re-renders
+const Box = React.memo(({ index, color, revealed, isSelected, isMatched, onClick }) => {
+  return (
+    <div
+      key={index}
+      className={`box ${revealed || isSelected || isMatched ? "revealed" : ""}`}
+      style={{
+        backgroundColor: revealed || isSelected || isMatched ? color : '#d1d5db',
+      }}
+      onClick={() => onClick(index)}
+    ></div>
+  );
+});
 
 function MemoryGame({ onFinish, username, sessionId }) {
   const navigate = useNavigate();
@@ -46,7 +71,6 @@ function MemoryGame({ onFinish, username, sessionId }) {
   const [alert, setAlert] = useState({ show: false, variant: "", message: "" });
   const [gameStarted, setGameStarted] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
-  const [showPlayAgain, setShowPlayAgain] = useState(false);
   const [cameraError, setCameraError] = useState(null);
   const [backgroundVideo, setBackgroundVideo] = useState(emotionVideos.neutral);
   const [videoError, setVideoError] = useState(null);
@@ -55,24 +79,34 @@ function MemoryGame({ onFinish, username, sessionId }) {
     width: window.innerWidth,
     height: window.innerHeight,
   });
+  const [lastEmotion, setLastEmotion] = useState('neutral'); // Track last emotion to avoid unnecessary video updates
 
-  const handleEmotionsCollected = (emotions) => {
-    console.log('MemoryGame - Emotions collected:', emotions);
-    if (emotions.length === 0) {
-      console.log('No emotions detected, setting neutral video');
-      setBackgroundVideo(emotionVideos.neutral);
-      return;
-    }
-    const emotionCounts = emotions.reduce((acc, emotion) => {
-      acc[emotion] = (acc[emotion] || 0) + 1;
-      return acc;
-    }, {});
-    const mostFrequentEmotion = Object.keys(emotionCounts).reduce((a, b) =>
-      emotionCounts[a] > emotionCounts[b] ? a : b
-    );
-    console.log('Setting video for emotion:', mostFrequentEmotion);
-    setBackgroundVideo(emotionVideos[mostFrequentEmotion] || emotionVideos.neutral);
-  };
+  // Debounced emotion handler to reduce frequency of updates
+  const handleEmotionsCollected = useCallback(
+    debounce((emotions) => {
+      if (emotions.length === 0) {
+        console.log('No emotions detected, setting neutral video');
+        if (lastEmotion !== 'neutral') {
+          setBackgroundVideo(emotionVideos.neutral);
+          setLastEmotion('neutral');
+        }
+        return;
+      }
+      const emotionCounts = emotions.reduce((acc, emotion) => {
+        acc[emotion] = (acc[emotion] || 0) + 1;
+        return acc;
+      }, {});
+      const mostFrequentEmotion = Object.keys(emotionCounts).reduce((a, b) =>
+        emotionCounts[a] > emotionCounts[b] ? a : b
+      );
+      console.log('Most frequent emotion:', mostFrequentEmotion);
+      if (mostFrequentEmotion !== lastEmotion) {
+        setBackgroundVideo(emotionVideos[mostFrequentEmotion] || emotionVideos.neutral);
+        setLastEmotion(mostFrequentEmotion);
+      }
+    }, 1000), // Debounce for 1 second
+    [lastEmotion]
+  );
 
   const emotionQueue = useEmotionDetection(
     videoRef,
@@ -83,28 +117,9 @@ function MemoryGame({ onFinish, username, sessionId }) {
     setCameraError
   );
 
-  useEffect(() => {
-    console.log('Emotion queue updated:', emotionQueue);
-  }, [emotionQueue]);
-
-  useEffect(() => {
-    if (backgroundVideoRef.current) {
-      console.log('Setting background video:', backgroundVideo);
-      backgroundVideoRef.current.src = backgroundVideo;
-      backgroundVideoRef.current.load();
-      backgroundVideoRef.current.play().catch((err) => {
-        console.error('Error playing background video:', err);
-        setVideoError('Failed to play background video. Check asset paths or browser permissions.');
-      });
-    }
-  }, [backgroundVideo]);
-
-  useEffect(() => {
-    if (!gameStarted) return;
-
-    const latestEmotion = emotionQueue.length > 0 ? emotionQueue[emotionQueue.length - 1] : 'neutral';
-
-    const sendGameData = async () => {
+  // Debounced server request to reduce network load
+  const sendGameData = useCallback(
+    debounce(async (latestEmotion) => {
       try {
         const adminResponse = await fetch(`http://localhost:3002/get_admin_by_child/${username}`, {
           method: 'GET',
@@ -142,10 +157,28 @@ function MemoryGame({ onFinish, username, sessionId }) {
       } catch (err) {
         console.error('Error sending game data:', err);
       }
-    };
+    }, 2000), // Debounce for 2 seconds
+    [username, score]
+  );
 
-    sendGameData();
-  }, [gameStarted, username, score, emotionQueue]);
+  useEffect(() => {
+    if (!gameStarted) return;
+
+    const latestEmotion = emotionQueue.length > 0 ? emotionQueue[emotionQueue.length - 1] : 'neutral';
+    sendGameData(latestEmotion);
+  }, [gameStarted, emotionQueue, sendGameData]);
+
+  useEffect(() => {
+    if (backgroundVideoRef.current) {
+      console.log('Setting background video:', backgroundVideo);
+      backgroundVideoRef.current.src = backgroundVideo;
+      backgroundVideoRef.current.load();
+      backgroundVideoRef.current.play().catch((err) => {
+        console.error('Error playing background video:', err);
+        setVideoError('Failed to play background video. Check asset paths or browser permissions.');
+      });
+    }
+  }, [backgroundVideo]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -206,20 +239,32 @@ function MemoryGame({ onFinish, username, sessionId }) {
     if (grid[first] === grid[second]) {
       correctSound.current.currentTime = 0;
       correctSound.current.play();
-      setMatchedPairs([...matchedPairs, grid[first]]);
-      setScore(prevScore => prevScore + 1);
+      setMatchedPairs(prev => {
+        const newMatchedPairs = [...prev, grid[first]];
+        setScore(prevScore => prevScore + 1);
+        setAttemptsLeft(prev => {
+          const newAttempts = prev - 1;
+          if (newMatchedPairs.length === 8) {
+            handleGameEnd(true, newAttempts);
+          } else if (newAttempts === 0) {
+            handleGameEnd(false, newAttempts);
+          }
+          return newAttempts;
+        });
+        return newMatchedPairs;
+      });
       setSelectedBoxes([]);
     } else {
+      setAttemptsLeft(prev => {
+        const newAttempts = prev - 1;
+        if (matchedPairs.length === 8) {
+          handleGameEnd(true, newAttempts);
+        } else if (newAttempts === 0) {
+          handleGameEnd(false, newAttempts);
+        }
+        return newAttempts;
+      });
       setTimeout(() => setSelectedBoxes([]), 1000);
-    }
-
-    const newAttemptsLeft = attemptsLeft - 1;
-    setAttemptsLeft(newAttemptsLeft);
-
-    if (matchedPairs.length + 1 === 8) {
-      handleGameEnd(true, newAttemptsLeft);
-    } else if (newAttemptsLeft === 0) {
-      handleGameEnd(false, newAttemptsLeft);
     }
   }
 
@@ -231,8 +276,8 @@ function MemoryGame({ onFinish, username, sessionId }) {
       show: true,
       variant: success ? "success" : "danger",
       message: success
-        ? "Congratulations! You've matched all pairs!"
-        : "Game Over! Try again!",
+        ? "Congratulations! You've matched all pairs! Returning to Game Selection..."
+        : "Game Over! Returning to Game Selection...",
     });
 
     if (onFinish) onFinish(score);
@@ -246,7 +291,6 @@ function MemoryGame({ onFinish, username, sessionId }) {
   const startGame = () => {
     setGameStarted(true);
     setShowDemo(false);
-    setShowPlayAgain(false);
   };
 
   return (
@@ -281,13 +325,7 @@ function MemoryGame({ onFinish, username, sessionId }) {
         )}
         <video
           ref={videoRef}
-          style={{
-            transform: 'scaleX(-1)',
-            width: '320px',
-            height: 'auto',
-            backgroundColor: '#000',
-            display: cameraError ? 'none' : gameStarted ? 'block' : 'none',
-          }}
+          style={{ display: 'none' }}
           autoPlay
           playsInline
           muted
@@ -304,7 +342,14 @@ function MemoryGame({ onFinish, username, sessionId }) {
       <div className="fruit-decoration fruit-1"></div>
       <div className="fruit-decoration fruit-2"></div>
 
-      {showConfetti && <Confetti width={windowSize.width} height={windowSize.height} />}
+      {showConfetti && (
+        <Confetti
+          width={windowSize.width}
+          height={windowSize.height}
+          numberOfPieces={100} // Reduced from default (200) to improve performance
+          recycle={false} // Stop confetti after initial burst
+        />
+      )}
 
       {!gameStarted ? (
         <div className="start-screen">
@@ -317,29 +362,18 @@ function MemoryGame({ onFinish, username, sessionId }) {
                 autoPlay
                 onEnded={() => {
                   setShowDemo(false);
-                  setShowPlayAgain(true);
                 }}
               >
                 <source src="/assets/memory-game-demo.mp4" type="video/mp4" />
                 Your browser does not support the video tag.
               </video>
             ) : (
-              <>
-                <button
-                  className="play-demo"
-                  onClick={() => setShowDemo(true)}
-                  style={{ display: showPlayAgain ? 'none' : 'inline-block' }}
-                >
-                  Watch Demo
-                </button>
-                <button
-                  className="play-again"
-                  onClick={() => setShowDemo(true)}
-                  style={{ display: showPlayAgain ? 'inline-block' : 'none' }}
-                >
-                  Play Again
-                </button>
-              </>
+              <button
+                className="play-demo"
+                onClick={() => setShowDemo(true)}
+              >
+                Watch Demo
+              </button>
             )}
           </div>
           <button onClick={startGame} className="start-button">
@@ -362,21 +396,15 @@ function MemoryGame({ onFinish, username, sessionId }) {
 
           <div className="grid-container">
             {grid.map((color, index) => (
-              <div
+              <Box
                 key={index}
-                className={`box ${
-                  revealed || selectedBoxes.includes(index) || matchedPairs.includes(color)
-                    ? "revealed"
-                    : ""
-                }`}
-                style={{
-                  backgroundColor:
-                    revealed || selectedBoxes.includes(index) || matchedPairs.includes(color)
-                      ? color
-                      : '#d1d5db',
-                }}
-                onClick={() => handleBoxClick(index)}
-              ></div>
+                index={index}
+                color={color}
+                revealed={revealed}
+                isSelected={selectedBoxes.includes(index)}
+                isMatched={matchedPairs.includes(color)}
+                onClick={handleBoxClick}
+              />
             ))}
           </div>
         </div>
