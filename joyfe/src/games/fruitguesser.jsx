@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate } from 'react-router-dom';
 import useEmotionDetection from '../components/EmotionDetection/useEmotionDetection';
 import "../gamestyle/fruitguesser.css";
 
@@ -8,13 +9,16 @@ const wordPairs = {
   Grapes: "🍇",
   Orange: "🍊",
   Strawberry: "🍓",
-  Watermelon: "🍉"
+  Watermelon: "🍉",
+  Mango: "🥭",
+  Pineapple: "🍍",
+  Peach: "🍑",
+  Cherry: "🍒"
 };
 
 const words = Object.keys(wordPairs);
 
 // Emotion-to-video mapping
-// Update these paths if your video file names or locations differ
 const emotionVideos = {
   happy: '/assets/background-videos/happy-bg.mp4',
   sad: '/assets/background-videos/sad-bg.mp4',
@@ -26,6 +30,7 @@ const emotionVideos = {
 };
 
 function FruitGuesser({ username }) {
+  const navigate = useNavigate();
   const videoRef = useRef(null);
   const faceCanvasRef = useRef(null);
   const canvasRef = useRef(null); // For confetti
@@ -34,18 +39,49 @@ function FruitGuesser({ username }) {
   const selectSound = useRef(new Audio('/assets/letter-select.mp3'));
   selectSound.current.volume = 0.2;
 
-  const [currentWord, setCurrentWord] = useState("");
-  const [score, setScore] = useState(0);
-  const [result, setResult] = useState("");
-  const [consecutiveErrors, setConsecutiveErrors] = useState(0);
-  const [attempts, setAttempts] = useState(0);
+  // Initialize state from localStorage or defaults
+  const [currentWord, setCurrentWord] = useState(() => {
+    return localStorage.getItem('fruitGuesserCurrentWord') || "";
+  });
+  const [score, setScore] = useState(() => {
+    return parseInt(localStorage.getItem('fruitGuesserScore')) || 0;
+  });
+  const [result, setResult] = useState(() => {
+    return localStorage.getItem('fruitGuesserResult') || "";
+  });
+  const [consecutiveErrors, setConsecutiveErrors] = useState(() => {
+    return parseInt(localStorage.getItem('fruitGuesserConsecutiveErrors')) || 0;
+  });
+  const [attempts, setAttempts] = useState(() => {
+    return parseInt(localStorage.getItem('fruitGuesserAttempts')) || 0;
+  });
+  const [questionNumber, setQuestionNumber] = useState(() => {
+    return parseInt(localStorage.getItem('fruitGuesserQuestionNumber')) || 0;
+  });
   const [emotionFeedback, setEmotionFeedback] = useState("");
-  const [gameStarted, setGameStarted] = useState(false);
+  const [gameStarted, setGameStarted] = useState(() => {
+    return localStorage.getItem('fruitGuesserGameStarted') === 'true';
+  });
+  const [gameOver, setGameOver] = useState(() => {
+    return localStorage.getItem('fruitGuesserGameOver') === 'true';
+  });
   const [showDemo, setShowDemo] = useState(false);
   const [showPlayAgain, setShowPlayAgain] = useState(false);
   const [cameraError, setCameraError] = useState(null);
-  const [backgroundVideo, setBackgroundVideo] = useState(emotionVideos.neutral); // Default to neutral video
+  const [backgroundVideo, setBackgroundVideo] = useState(emotionVideos.neutral);
   const [particles, setParticles] = useState([]);
+
+  // Save state to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('fruitGuesserCurrentWord', currentWord);
+    localStorage.setItem('fruitGuesserScore', score);
+    localStorage.setItem('fruitGuesserResult', result);
+    localStorage.setItem('fruitGuesserConsecutiveErrors', consecutiveErrors);
+    localStorage.setItem('fruitGuesserAttempts', attempts);
+    localStorage.setItem('fruitGuesserQuestionNumber', questionNumber);
+    localStorage.setItem('fruitGuesserGameStarted', gameStarted);
+    localStorage.setItem('fruitGuesserGameOver', gameOver);
+  }, [currentWord, score, result, consecutiveErrors, attempts, questionNumber, gameStarted, gameOver]);
 
   const handleEmotionsCollected = useCallback((emotions) => {
     console.log('FruitGuesser - Emotions collected:', emotions);
@@ -93,7 +129,7 @@ function FruitGuesser({ username }) {
   );
 
   useEffect(() => {
-    if (!gameStarted) return;
+    if (!gameStarted || gameOver) return;
 
     const latestEmotion = emotionQueue.length > 0 ? emotionQueue[emotionQueue.length - 1] : 'neutral';
 
@@ -138,7 +174,7 @@ function FruitGuesser({ username }) {
     };
 
     sendGameData();
-  }, [gameStarted, username, score, emotionQueue]);
+  }, [gameStarted, gameOver, username, score, emotionQueue]);
 
   const launchConfetti = useCallback(() => {
     const newParticles = [];
@@ -189,10 +225,10 @@ function FruitGuesser({ username }) {
   }, [particles]);
 
   useEffect(() => {
-    if (gameStarted) {
+    if (gameStarted && !gameOver && !currentWord) {
       getRandomWord();
     }
-  }, [gameStarted]);
+  }, [gameStarted, gameOver, currentWord]);
 
   const getRandomWord = () => {
     const randomIndex = Math.floor(Math.random() * words.length);
@@ -208,27 +244,62 @@ function FruitGuesser({ username }) {
 
     if (guess === currentWord) {
       setScore(score + 1);
-      setResult("Correct! Well done!");
-      setConsecutiveErrors(0);
-      selectSound.current.currentTime = 0;
-      selectSound.current.volume = 0.5;
-      selectSound.current.play();
+      setResult("Correct!");
       launchConfetti();
-      setTimeout(getRandomWord, 1000);
     } else {
-      setResult(`Oops! That's not ${currentWord}. Try again!`);
+      console.log("Wrong!");
+      setResult("Wrong!");
       setConsecutiveErrors(consecutiveErrors + 1);
+    }
+
+    if (questionNumber < 9) {
+      setTimeout(() => {
+        setQuestionNumber(questionNumber + 1);
+        getRandomWord();
+      }, 1000);
+    } else {
+      setTimeout(() => {
+        setGameOver(true);
+      }, 1000);
     }
   };
 
+  useEffect(() => {
+    if (gameOver) {
+      setTimeout(() => {
+        navigate('/');
+        // Clear localStorage to reset the game
+        localStorage.removeItem('fruitGuesserCurrentWord');
+        localStorage.removeItem('fruitGuesserScore');
+        localStorage.removeItem('fruitGuesserResult');
+        localStorage.removeItem('fruitGuesserConsecutiveErrors');
+        localStorage.removeItem('fruitGuesserAttempts');
+        localStorage.removeItem('fruitGuesserQuestionNumber');
+        localStorage.removeItem('fruitGuesserGameStarted');
+        localStorage.removeItem('fruitGuesserGameOver');
+      }, 2000);
+    }
+  }, [gameOver, navigate]);
+
   const startGame = () => {
     setGameStarted(true);
+    setGameOver(false);
     setScore(0);
     setAttempts(0);
+    setQuestionNumber(0);
     setConsecutiveErrors(0);
     setShowDemo(false);
     setShowPlayAgain(false);
     setParticles([]);
+    // Clear localStorage to start fresh
+    localStorage.setItem('fruitGuesserCurrentWord', '');
+    localStorage.setItem('fruitGuesserScore', 0);
+    localStorage.setItem('fruitGuesserResult', '');
+    localStorage.setItem('fruitGuesserConsecutiveErrors', 0);
+    localStorage.setItem('fruitGuesserAttempts', 0);
+    localStorage.setItem('fruitGuesserQuestionNumber', 0);
+    localStorage.setItem('fruitGuesserGameStarted', 'true');
+    localStorage.setItem('fruitGuesserGameOver', 'false');
   };
 
   return (
@@ -260,13 +331,7 @@ function FruitGuesser({ username }) {
         )}
         <video
           ref={videoRef}
-          style={{
-            transform: 'scaleX(-1)',
-            width: '320px',
-            height: 'auto',
-            backgroundColor: '#000',
-            display: cameraError ? 'none' : gameStarted ? 'block' : 'none',
-          }}
+          style={{ display: 'none' }}
           autoPlay
           playsInline
           muted
@@ -280,13 +345,13 @@ function FruitGuesser({ username }) {
         <div ref={emotionDisplayRef} className="emotion-display"></div>
       </div>
 
-      <div className="animal-decoration animal-1"></div>
-      <div className="animal-decoration animal-2"></div>
+      <div className="fruit-decoration fruit-1"></div>
+      <div className="fruit-decoration fruit-2"></div>
 
       {!gameStarted ? (
         <div className="start-screen">
           <h1>Fruit Guesser Game</h1>
-          <p>Can you guess the fruit from the emoji?</p>
+          <p>Can you guess the fruit from the emoji? Answer 10 questions to test your skills!</p>
           <div className="video-container">
             {showDemo ? (
               <video
@@ -323,12 +388,20 @@ function FruitGuesser({ username }) {
             Let's Play!
           </button>
         </div>
+      ) : gameOver ? (
+        <div className="game-screen">
+          <h1>Game Over!</h1>
+          <div className="game-info">
+            <p>⭐ Final Score: {score}/10</p>
+            <p>Returning to Game Selection...</p>
+          </div>
+        </div>
       ) : (
         <div className="game-screen">
           <h1>Fruit Guesser Game</h1>
           <div className="game-info">
-            <p>⭐ Score: {score}</p>
-            <p>🎯 Attempts: {attempts}</p>
+            <p>⭐ Score: {score}/10</p>
+            <p>🎯 Question: {questionNumber + 1}/10</p>
             {emotionFeedback && <p className="emotion-feedback">{emotionFeedback}</p>}
           </div>
           <div className="game-area">
@@ -347,7 +420,11 @@ function FruitGuesser({ username }) {
                 </button>
               ))}
             </div>
-            {result && <p className="result-message">{result}</p>}
+            {result && (
+              <p className={`result-message ${result === "Wrong!" ? "wrong-message" : "correct-message"}`}>
+                {result}
+              </p>
+            )}
           </div>
         </div>
       )}
