@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useEmotionDetection from '../components/EmotionDetection/useEmotionDetection';
 import '../gamestyle/BoggleGame.css';
-
 
 const levels = [
   ["TREE", "SAND", "COLD", "HILL"],
@@ -88,12 +88,14 @@ function isAdjacent(cell1, cell2) {
 }
 
 const BoggleGame = ({ username, age, gender }) => {
+  const navigate = useNavigate();
   const videoRef = useRef(null);
   const faceCanvasRef = useRef(null);
   const canvasRef = useRef(null);
   const backgroundVideoRef = useRef(null);
   const emotionDisplayRef = useRef(null);
   const boggleRef = useRef(null);
+  const timeoutRef = useRef(null); // For auto-progression timeout
   const [backgroundVideo, setBackgroundVideo] = useState(emotionVideos.neutral);
   const [currentLevel, setCurrentLevel] = useState(0);
   const [levelWords, setLevelWords] = useState(levels[0]);
@@ -104,14 +106,13 @@ const BoggleGame = ({ username, age, gender }) => {
   const [message, setMessage] = useState('');
   const [showStartScreen, setShowStartScreen] = useState(true);
   const [showNextLevel, setShowNextLevel] = useState(false);
-  const [showExit, setShowExit] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
   const [showPlayAgain, setShowPlayAgain] = useState(false);
   const [lastInteractionTime, setLastInteractionTime] = useState(Date.now());
   const [particles, setParticles] = useState([]);
   const [correctCells, setCorrectCells] = useState([]);
   const [cameraError, setCameraError] = useState(null);
+  const [isDragging, setIsDragging] = useState(false); // Ensure isDragging is defined
   const selectSound = useRef(new Audio('/assets/letter-select.mp3'));
   const correctWordSound = useRef(new Audio('/assets/correct-word.mp3'));
   selectSound.current.volume = 0.2;
@@ -171,16 +172,26 @@ const BoggleGame = ({ username, age, gender }) => {
     setAttempts(30);
     setMessage('');
     setShowNextLevel(false);
-    setShowExit(false);
     setLastInteractionTime(Date.now());
   }, [currentLevel]);
+
+  const nextLevel = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current); // Clear any pending auto-progression
+    }
+    setCurrentLevel(l => l + 1);
+    setShowNextLevel(false);
+    setParticles([]);
+    startLevel();
+  }, [startLevel]);
 
   const checkWord = useCallback(() => {
     console.log('checkWord - Called with attempts:', attempts, 'selectedPath:', selectedPath);
     if (attempts <= 0) {
-      setMessage('😞 Game Over! No attempts left.');
-      setShowExit(true);
-      setTimeout(() => setShowStartScreen(true), 2000);
+      setMessage('You failed! No attempts left. Returning to Game Selection...');
+      setTimeout(() => {
+        navigate('/');
+      }, 2000);
       return;
     }
     setAttempts(a => a - 1);
@@ -195,20 +206,27 @@ const BoggleGame = ({ username, age, gender }) => {
         setMessage(`🎉 Level ${currentLevel + 1} Complete!`);
         launchConfetti();
         if (currentLevel === levels.length - 1) {
-          setShowExit(true);
+          setTimeout(() => {
+            navigate('/');
+          }, 2000);
         } else {
           setShowNextLevel(true);
+          // Auto-progress to next level after 3 seconds
+          timeoutRef.current = setTimeout(() => {
+            nextLevel();
+          }, 3000);
         }
       }
     }
     resetSelection();
     setLastInteractionTime(Date.now());
     if (attempts - 1 <= 0) {
-      setMessage('😞 Game Over! No attempts left.');
-      setShowExit(true);
-      setTimeout(() => setShowStartScreen(true), 2000);
+      setMessage('You failed! No attempts left. Returning to Game Selection...');
+      setTimeout(() => {
+        navigate('/');
+      }, 2000);
     }
-  }, [attempts, selectedPath, grid, levelWords, foundWords, currentLevel, launchConfetti]);
+  }, [attempts, selectedPath, grid, levelWords, foundWords, currentLevel, launchConfetti, navigate, nextLevel]);
 
   useEffect(() => {
     if (showStartScreen) return;
@@ -510,6 +528,14 @@ const BoggleGame = ({ username, age, gender }) => {
     return null;
   };
 
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current); // Cleanup timeout on unmount
+      }
+    };
+  }, []);
+
   return (
     <div className="boggle-game min-h-screen">
       <video
@@ -542,13 +568,7 @@ const BoggleGame = ({ username, age, gender }) => {
         )}
         <video
           ref={videoRef}
-          style={{
-            transform: 'scaleX(-1)',
-            width: '320px',
-            height: 'auto',
-            backgroundColor: '#000',
-            display: cameraError ? 'none' : showStartScreen ? 'none' : 'block',
-          }}
+          style={{ display: 'none' }}
           autoPlay
           playsInline
           muted
@@ -653,47 +673,12 @@ const BoggleGame = ({ username, age, gender }) => {
             )}
           </div>
           <div className="message">{message}</div>
-          <button
-            className="test-server-button"
-            onClick={async () => {
-              try {
-                const response = await fetch('http://localhost:5000/', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ landmarks: [{ x: 0.1, y: 0.2, z: 0.3 }] }),
-                });
-                const data = await response.json();
-                console.log('Test Fetch:', data);
-              } catch (err) {
-                console.error('Test Fetch Error:', err);
-              }
-            }}
-          >
-            Test Server
-          </button>
           {showNextLevel && (
             <button
               className="next-level-button"
-              onClick={() => {
-                setCurrentLevel(l => l + 1);
-                setShowNextLevel(false);
-                setParticles([]);
-                startLevel();
-              }}
+              onClick={nextLevel}
             >
               Next Level
-            </button>
-          )}
-          {showExit && (
-            <button
-              className="exit-button"
-              onClick={() => {
-                setShowStartScreen(true);
-                setCurrentLevel(0);
-                setParticles([]);
-              }}
-            >
-              Exit
             </button>
           )}
           <canvas ref={canvasRef} className="confetti-canvas"></canvas>
